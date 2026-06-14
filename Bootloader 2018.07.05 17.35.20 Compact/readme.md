@@ -180,38 +180,69 @@ Verify the exact spellings against the lpcspifilib revision you vendor — the A
 
 The flash dump does not contain function symbols or original function names. The labels below were assigned manually during analysis based on each routine's behavior, call context, and relationship to known LPCOpen/lpcspifilib code. The reconstruction keeps these labels so the source can be compared directly with the disassembly. Addresses are flash/image addresses (the `0x14000000` ROM view); the SRAM-relocated routines map back per [§10](#10-memory-map).
 
-| Address      | Function label                     |
-| ------------ | ---------------------------------- |
-| `0x14000260` | `IRQ52_Handler`                    |
-| `0x14000370` | `Reset_Handler`                    |
-| `0x140003a8` | `jump_to_ram_stage`                |
-| `0x140003b8` | `image_try_keys`                   |
-| `0x14000444` | `select_boot_slot`                 |
-| `0x140004f4` | `memzero_words`                    |
-| `0x14000508` | `board_gpio_init_timer_delay`      |
-| `0x1400056c` | `boot_main`                        |
-| `0x1400072c` | `prng_seed_from_key`               |
-| `0x1400074c` | `prng_seed_keyA`                   |
-| `0x14000758` | `prng_seed_keyB_or_device`         |
-| `0x140007..` | `xorshift128_next`                 |
-| `0x1400....` | `stream_decrypt_skip_header`       |
-| `0x1400....` | `stream_checksum16`                |
-| `0x1400....` | `stream_decrypt_segment`           |
-| `0x14000b04` | `spifi_init`                       |
-| `0x14000b9c` | `mem_read`                         |
-| `0x14000c48` | `flash_erase_block`                |
-| `0x14000c80` | `flash_program`                    |
-| `0x14000cc0` | `stash_status_config_values`       |
-| `0x140019a0` | `timer0_read_tc`                   |
-| `0x140019ac` | `timer_ms_to_ticks`                |
-| `0x14000d..` | `dwords_all_eq`                    |
-| `0x1400....` | `spifi_get_block_from_addr`        |
-| `0x1400....` | `spifi_program`                    |
-| `0x1400....` | `spifi_read`                       |
-| `0x1400....` | `spifi_erase` / `spifi_erase_tail` |
-| `0x1400....` | `spifi_hw_wait_cmd`                |
-| `0x14001a..` | `spifi_set_block_prot`             |
-| `0x14001a..` | `spifi_register_all_families`      |
+| Address      | Function label                |
+| ------------ | ----------------------------- |
+| `0x14000260` | `IRQ52_Handler`               |
+| `0x14000370` | `Reset_Handler`               |
+| `0x140003a8` | `jump_to_ram_stage`           |
+| `0x140003b8` | `image_try_keys`              |
+| `0x14000444` | `select_boot_slot`            |
+| `0x140004f4` | `memzero_words`               |
+| `0x14000508` | `board_gpio_init_timer_delay` |
+| `0x1400056c` | `boot_main`                   |
+| `0x1400072c` | `prng_seed_from_key`          |
+| `0x1400074c` | `prng_seed_keyA`              |
+| `0x14000758` | `prng_seed_keyB_or_device`    |
+| `0x1400079c` | `xorshift128_next`            |
+| `0x14000800` | `stream_decrypt_skip_header`  |
+| `0x140008ec` | `stream_checksum16`           |
+| `0x140009d4` | `stream_decrypt_segment`      |
+| `0x14000b04` | `spifi_init`                  |
+| `0x14000b9c` | `mem_read`                    |
+| `0x14000c48` | `flash_erase_block`           |
+| `0x14000c80` | `flash_program`               |
+| `0x14000cc0` | `stash_status_config_values`  |
+| `0x14000cd4` | `dwords_all_eq`               |
+| `0x14000cec` | `spifi_find_device`           |
+| `0x14000d38` | `spifi_probe_family`          |
+| `0x14000df4` | `spifi_register_family`       |
+| `0x14000e14` | `list_insert`                 |
+| `0x14000e2c` | `spifi_reset_controller`      |
+| `0x14000e54` | `spifi_in_memory_mode`        |
+| `0x14000e60` | `spifi_set_memmode`           |
+| `0x14000ec8` | `spifi_dev_to_cmd_mode`       |
+| `0x14000ee0` | `spifi_get_device_size`       |
+| `0x14000f08` | `spifi_init_device`           |
+| `0x14000fbc` | `spifi_set_options`           |
+| `0x1400103a` | `spifi_get_block_from_addr`   |
+| `0x14001052` | `spifi_program`               |
+| `0x1400108e` | `spifi_read`                  |
+| `0x140010ca` | `spifi_erase`                 |
+| `0x140010cc` | `spifi_erase_tail`            |
+| `0x140010f6` | `spifi_hw_wait_cmd`           |
+| `0x140010fe` | `spifi_cmd_write_enable`      |
+| `0x14001108` | `spifi_wait_device_ready`     |
+| `0x1400111a` | `spifi_status_modify_bit`     |
+| `0x14001144` | `spifi_device_status_check`   |
+| `0x1400115c` | `spifi_getstatus_2sr_norm`    |
+| `0x140011a0` | `spifi_getstatus_3sr`         |
+| `0x140011d8` | `spifi_getstatus_1sr`         |
+| `0x140011f4` | `spifi_getstatus_2sr`         |
+| `0x14001238` | `spifi_write_status_2byte`    |
+| `0x14001268` | `spifi_write_status_3byte`    |
+| `0x140012a0` | `spifi_write_status_1byte`    |
+| `0x1400139a` | `spifi_status_to_flags`       |
+| `0x140013e8` | `spifi_cmd_chip_erase`        |
+| `0x14001418` | `spifi_erase_64k_block`       |
+| `0x14001490` | `spifi_erase_4k_sector`       |
+| `0x140014f2` | `spifi_page_program`          |
+| `0x140015a6` | `spifi_read_data`             |
+| `0x14001630` | `spifi_modehook_clear_opts`   |
+| `0x1400164c` | `spifi_build_family`          |
+| `0x140017de` | `spifi_set_block_prot`        |
+| `0x1400181c` | `spifi_register_all_families` |
+| `0x140019a0` | `timer0_read_tc`              |
+| `0x140019ac` | `timer_ms_to_ticks`           |
 
 The exact addresses of the crypto and lpcspifilib bodies shift slightly versus the sibling build because the inserted `board_gpio_init_timer_delay` pushes `boot_main` and everything after it forward by `0x90`. There are **no** RAM-resident interrupt handlers in this image — every peripheral vector is the `IRQ52_Handler` trap, so there are no `0x1001Cxxx` handler addresses to list.
 
