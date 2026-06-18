@@ -1,5 +1,5 @@
-// CompactPro_43X0_Bootloader/bootloader/src/startup_lpc43xx.c
-/* startup_lpc43xx.c — CompactPro_43X0_Bootloader (reconstructed)
+// SeekProFF_43X0_Bootloader/bootloader/src/startup_lpc43xx.c
+/* startup_lpc43xx.c — SeekProFF_43X0_Bootloader (reconstructed)
  *
  * Vector table + Reset_Handler for the LPC43xx SPIFI first-stage bootloader.
  *
@@ -49,7 +49,7 @@ __attribute__((used, section(".isr_vector")))
 void (* const g_pfnVectors[])(void) =
 {
     (void (*)(void))(&__stack_top),   /* 0x00  initial MSP = 0x10018000        */
-    Reset_Handler,                    /* 0x04  reset -> 0x14000264             */
+    Reset_Handler,                    /* 0x04  reset -> 0x14000262             */
     NMI_Handler,                      /* 0x08                                  */
     HardFault_Handler,                /* 0x0C                                  */
     MemManage_Handler,                /* 0x10                                  */
@@ -80,12 +80,10 @@ void (* const g_pfnVectors[])(void) =
 };
 
 /* ===========================================================================
- * Reset_Handler  (flash 0x14000264)
+ * Reset_Handler  (flash 0x14000262)
  *
- * PUSH {R4-R11,LR}; SUB SP,#0x2C4 — i.e. a normal frame with the 0x2C0-byte
- * segment table held on the stack. (This build pushes R4-R11 and loads the
- * eight NVIC ICPR addresses into registers rather than looping; the sibling FF
- * build pushes only R4-R7. Behaviour is identical.) Sequence is exactly:
+ * PUSH {R4-R7,LR}; SUB SP,#0x2C4 — i.e. a normal frame with the 0x2C0-byte
+ * segment table held on the stack. Sequence is exactly:
  *   CPSID i -> mailbox check/clear -> RGU reset -> NVIC ICPR clear ->
  *   scatter-load -> spifi_init -> A->B migration (3 slots unrolled) ->
  *   select_boot_slot -> segmented load -> hand-off.
@@ -213,7 +211,7 @@ void Reset_Handler(void)
      * NOTE: the MSP is NOT reloaded here — the entry stub owns its stack.   */
     memcpy_auto((void *)RAM_APP_LOAD_BASE, seg, IMG_HEADER_OFFSET);
 
-    *(volatile uint32_t *)(RAM_HANDOFF_BLOCK + 0u) = (uint32_t)g_build_info; /* 0x14002958 */
+    *(volatile uint32_t *)(RAM_HANDOFF_BLOCK + 0u) = (uint32_t)g_build_info; /* 0x14002798 */
     *(volatile uint32_t *)(RAM_HANDOFF_BLOCK + 4u) = g_boot_config_ptr;      /* 0x14010000 */
     *(volatile uint32_t *)(RAM_HANDOFF_BLOCK + 8u) = slot_id;
 
@@ -227,7 +225,7 @@ void Reset_Handler(void)
 }
 
 /* ===========================================================================
- * scatterload_copy_words  (flash 0x1400058C)
+ * scatterload_copy_words  (flash 0x140004E6)
  *
  * Word copy used by CRT0. Register order is (R0=src, R1=dst, R2=byte_len);
  * it computes (src - dst) once and indexes the source off the destination

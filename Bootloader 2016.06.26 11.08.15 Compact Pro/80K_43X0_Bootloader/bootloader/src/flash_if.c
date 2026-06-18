@@ -1,124 +1,118 @@
+// CompactPro_43X0_Bootloader/bootloader/src/flash_if.c
 /* flash_if.c — CompactPro_43X0_Bootloader (reconstructed)
  *
- * The flash-access layer the boot pipeline sits on. Unlike the iOS image (which
- * wrapped NXP lpcspifilib), this image drives a bespoke hand-written SPIFI
- * driver — see spifi_glue.c — which is IMPORTED, not reimplemented. This file
- * only marshals work into the driver's fixed request struct and calls its three
- * relocated entry points (the thunks). Names are kept identical to the
- * disassembly.
+ * The flash-access layer the boot pipeline sits on. This image drives a bespoke
+ * hand-written SPIFI driver (see spifi_glue.c), IMPORTED, not reimplemented.
+ * This file only marshals work into the driver's fixed request struct and calls
+ * its three relocated entry points (the thunks). Names are kept identical to
+ * the disassembly. This layer is byte-identical to the FF sibling build.
  *
- * Request-struct ABI (struct in spifi_glue.c, instance @0x10011ED0):
+ * Faithful to the machine code (NOT the idealised template):
+ *   - flash_program is 4-arg (flash_off, src, len, staged); it does NO internal
+ *     memcpy and NO bounds check. The src pointer is vestigial — the request ABI
+ *     carries none, so program data is pre-staged to the AHB buffer by the
+ *     caller. 'staged' selects stage_buf (0x20000000) vs 0; sentinel is 0.
+ *   - flash_program_rmw is just erase-then-program (staged), NOT a block RMW.
+ *   - flash_chip_erase erases the single 64 KB block at flash_off.
+ *   - No read-back verify on program; no blank-verify on erase.
+ *
+ * Request-struct ABI (typed struct in spifi_glue.c, instance @0x10011ED0):
  *   +0x00 flash_offset : byte offset of the target from 0x14000000
  *   +0x04 length       : byte count
- *   +0x08 stage_buf    : AHB staging buffer (0x20000000) for program data, or 0
- *   +0x0C sentinel     : 0 / 0xFFFFFFFF
- *   +0x10 opcode       : 8 = program, 0x20 = erase
+ *   +0x08 stage_buf    : AHB staging buffer (0x20000000) or 0
+ *   +0x0C sentinel     : 0
+ *   +0x10 opcode       : 0x08 = program, 0x20 = erase
  * The driver context lives immediately after, at 0x10011EE4.
- *
- * The request ABI carries NO source pointer, so all program data is staged
- * through the AHB buffer at 0x20000000 first. Reads are plain XIP loads (the
- * flash is memory-mapped at 0x14000000), so the read-modify-write path needs no
- * driver "read" call. This build does NO read-back verify on program and NO
- * blank-verify on erase.
  */
-
 #include "bootloader.h"
 
-/* SCU pin-config registers for P3_x (SPIFI bus). Base 0x40086000, the SFSP3
- * group at +0x180, one 32-bit reg per pin. */
+/* SCU pin-config registers for P3_x (SPIFI bus): base 0x40086000, SFSP3 +0x180. */
 #define SCU_SFSP3(pin)   (*(volatile uint32_t *)(0x40086000u + 0x180u + ((pin) * 4u)))
 
+/* The loader fills the op-request struct by absolute offset from
+ * RAM_REQUEST_STRUCT (0x10011ED0), exactly as the machine code does. */
+#define REQ_FLASH_OFFSET  (*(volatile uint32_t *)(RAM_REQUEST_STRUCT + 0x00u))
+#define REQ_LENGTH        (*(volatile uint32_t *)(RAM_REQUEST_STRUCT + 0x04u))
+#define REQ_STAGE_BUF     (*(volatile uint32_t *)(RAM_REQUEST_STRUCT + 0x08u))
+#define REQ_SENTINEL      (*(volatile uint32_t *)(RAM_REQUEST_STRUCT + 0x0Cu))
+#define REQ_OPCODE        (*(volatile uint32_t *)(RAM_REQUEST_STRUCT + 0x10u))
+
 /* ------------------------------ bring-up ------------------------------- */
+/* spifi_init (flash 0x1400063C). Pin-mux the SPIFI bus, prime the request
+ * struct (a default — every op overwrites it), and bring the imported driver
+ * up through the init thunk, which is passed the driver context (request+0x14).
+ *
+ * Faithful oddities preserved from the machine code:
+ *   - P3_3 is NOT configured.
+ *   - P3_4 is written TWICE: 0xF3, then immediately 0xD3.
+ *   - P3_5..P3_7 = 0xD3 (function 3); P3_8 = 0x13. */
 int spifi_init(void)
 {
-    /* Pin-mux the SPIFI bus. Faithful oddities preserved from the machine code:
-     *  - P3_3 is NOT configured. (The iOS image set P3_3..P3_8.)
-     *  - P3_4 is written TWICE: 0xF3, then immediately 0xD3.
-     * P3_5..P3_8 follow the standard SPIFI mux (function 3).                    */
-    SCU_SFSP3(4) = 0xF3u;        /* first write (oddity)                        */
-    SCU_SFSP3(4) = 0xD3u;        /* immediately overwritten                     */
+    SCU_SFSP3(4) = 0xF3u;        /* first write (oddity)    */
+    SCU_SFSP3(4) = 0xD3u;        /* immediately overwritten */
     SCU_SFSP3(5) = 0xD3u;
     SCU_SFSP3(6) = 0xD3u;
     SCU_SFSP3(7) = 0xD3u;
     SCU_SFSP3(8) = 0x13u;
 
-    /* Bring the imported driver up: probe the JEDEC ID, select the vendor
-     * command set, configure read/quad modes, and enter memory-mapped (XIP)
-     * mode. All of that lives behind the init thunk. */
-    return spifi_drv_init_thunk(SPIFI_CTRL_BASE, g_spifi_driver_ctx);
+    REQ_FLASH_OFFSET = 0u;
+    REQ_LENGTH       = 0u;
+    REQ_STAGE_BUF    = 0u;
+    REQ_SENTINEL     = 0xFFFFFFFFu;       /* default init; flash ops set 0      */
+    REQ_OPCODE       = SPIFI_OP_PROGRAM;  /* default init                       */
+
+    return spifi_drv_init_thunk((void *)RAM_DRIVER_CONTEXT);
 }
 
 /* ----------------------------- program --------------------------------- */
-/* Program len bytes at a flash address. Bounds-checked to one 64K block; src
- * must be word-aligned. The data is staged into the AHB buffer (the request ABI
- * has no source field), then the program thunk is invoked. No read-back verify. */
-int flash_program(uint8_t *dst, const void *src, uint32_t len)
+/* flash_program (flash 0x1400069C). Marshal one page-program op. Data is taken
+ * from the staging buffer (the request ABI has no source field); 'staged'
+ * selects stage_buf. No read-back verify. */
+int flash_program(uint32_t flash_off, const void *src, uint32_t len, int staged)
 {
-    if (((uint32_t)len + ((uint32_t)(uintptr_t)dst & 0xFFFFu)) > 0x10000u)
-        return FL_BADARG;
-    if (((uint32_t)(uintptr_t)src & 3u) != 0u)
-        return FL_BADARG;
-
-    /* marshal the source through the staging buffer (skip a self-copy) */
-    if ((uintptr_t)src != STAGING_BUF_BASE)
-        memcpy_auto((void *)STAGING_BUF_BASE, src, len);
-
-    g_spifi_request->flash_offset = (uint32_t)(uintptr_t)dst - SPIFI_XIP_BASE;
-    g_spifi_request->length       = len;
-    g_spifi_request->stage_buf    = STAGING_BUF_BASE;     /* 0x20000000 */
-    g_spifi_request->sentinel     = 0xFFFFFFFFu;
-    g_spifi_request->opcode       = SPIFI_OP_PROGRAM;     /* 8 */
-    return spifi_drv_program_thunk(g_spifi_request, g_spifi_driver_ctx);
+    (void)src;                                  /* vestigial */
+    REQ_FLASH_OFFSET = flash_off - SPIFI_XIP_BASE;
+    REQ_LENGTH       = len;
+    REQ_STAGE_BUF    = staged ? STAGING_BUF_BASE : 0u;   /* 0x20000000 or 0 */
+    REQ_SENTINEL     = 0u;
+    REQ_OPCODE       = SPIFI_OP_PROGRAM;        /* 8 */
+    return spifi_drv_program_thunk((void *)RAM_DRIVER_CONTEXT);
 }
 
 /* ------------------------------- erase --------------------------------- */
-/* Erase a range. Bounds-checked to one 64K block; no blank-verify. */
-int flash_erase_region(uint32_t addr, uint32_t len)
+/* flash_erase_region (flash 0x140006D4). Erase a range; no blank-verify. The
+ * request's stage_buf is left at 0x20000000 here (matches the machine code). */
+int flash_erase_region(uint32_t flash_off, uint32_t len)
 {
-    if (((uint32_t)len + (addr & 0xFFFFu)) > 0x10000u)
-        return FL_BADARG;
-
-    g_spifi_request->flash_offset = addr - SPIFI_XIP_BASE;
-    g_spifi_request->length       = len;
-    g_spifi_request->stage_buf    = 0u;                   /* no data for erase */
-    g_spifi_request->sentinel     = 0xFFFFFFFFu;
-    g_spifi_request->opcode       = SPIFI_OP_ERASE;       /* 0x20 */
-    return spifi_drv_op_thunk(g_spifi_request, g_spifi_driver_ctx);
-}
-
-/* Despite the name, erases the SINGLE 64K block containing addr — the length is
- * the fixed 0x10000, not the whole device. The 64K-alignment check is the guard;
- * this routine does NO blank-verify. */
-int flash_chip_erase(uint8_t *addr)
-{
-    if (((uint32_t)(uintptr_t)addr & 0xFFFFu) != 0u)
-        return FL_BADARG;
-    return flash_erase_region((uint32_t)(uintptr_t)addr, 0x10000u);
+    REQ_FLASH_OFFSET = flash_off - SPIFI_XIP_BASE;
+    REQ_LENGTH       = len;
+    REQ_STAGE_BUF    = STAGING_BUF_BASE;        /* 0x20000000 */
+    REQ_SENTINEL     = 0u;
+    REQ_OPCODE       = SPIFI_OP_ERASE;          /* 0x20 */
+    return spifi_drv_op_thunk((void *)RAM_DRIVER_CONTEXT);
 }
 
 /* ----------------------- read-modify-write ----------------------------- */
-/* Patch a sub-block span without disturbing the rest of its 64K block: read the
- * whole block via XIP into the staging buffer, patch it, erase the block, and
- * reprogram it. src==NULL means erase-fill the span with 0xFF. (Used by
- * select_boot_slot to flip the 4-byte config selector.) No final verify. */
-int flash_program_rmw(uint32_t addr, const uint8_t *src, uint32_t len)
+/* flash_program_rmw (flash 0x14000704). Despite the name, just erase the range
+ * then program it (staged). Used by select_boot_slot to flip the 4-byte config
+ * selector / stamp a slot header. No final verify. */
+int flash_program_rmw(uint32_t flash_off, const void *src, uint32_t len)
 {
-    uint8_t  *stage = (uint8_t *)STAGING_BUF_BASE;
-    uint32_t  block = addr & ~0xFFFFu;            /* 64K-aligned block base */
-    uint32_t  off   = addr - block;
-    int rc;
+    if (!flash_erase_region(flash_off, len))
+        return 0;
+    return flash_program(flash_off, src, len, 1) ? 1 : 0;   /* staged */
+}
 
-    if (((uint32_t)len + (addr & 0xFFFFu)) > 0x10000u)
-        return FL_BADARG;
-
-    memcpy_auto(stage, (const void *)block, 0x10000u);    /* XIP read whole block */
-    if (src)
-        memcpy_auto(stage + off, src, len);               /* patch                */
-    else
-        for (uint32_t i = 0; i < len; i++) stage[off + i] = 0xFFu;  /* erase-fill */
-
-    rc = flash_erase_region(block, 0x10000u);
-    if (rc)
-        return rc;
-    return flash_program((uint8_t *)block, stage, 0x10000u);
+/* ------------------------------ chip erase ----------------------------- */
+/* flash_chip_erase (flash 0x14000728). Despite the name, erases the SINGLE
+ * 64 KB block at flash_off (fixed 0x10000 length); used by the migration sweep.
+ * stage_buf is 0 here (unlike flash_erase_region). */
+int flash_chip_erase(uint32_t flash_off)
+{
+    REQ_FLASH_OFFSET = flash_off - SPIFI_XIP_BASE;
+    REQ_LENGTH       = 0x10000u;                /* single 64 KB block */
+    REQ_STAGE_BUF    = 0u;
+    REQ_SENTINEL     = 0u;
+    REQ_OPCODE       = SPIFI_OP_ERASE;          /* 0x20 */
+    return spifi_drv_op_thunk((void *)RAM_DRIVER_CONTEXT);
 }

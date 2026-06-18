@@ -1,14 +1,14 @@
-// CompactPro_43X0_Bootloader/bootloader/inc/bootloader.h
-/* bootloader.h — CompactPro_43X0_Bootloader (reconstructed)
+// SeekProFF_43X0_Bootloader/bootloader/inc/bootloader.h
+/* bootloader.h — SeekProFF_43X0_Bootloader (reconstructed)
  *
  * Names are kept identical to the disassembly. Where a name does not match
  * its behaviour, the prototype carries a comment.
  *
  * This build embeds NO internal name string. The only identity baked in is a
- * 4-byte build marker + an ASCII build date/time at byte_14002958: marker
- * {01,02,00,00} (composite 0x01020000), "Jun 26 2016" / "11:08:15". The
+ * 4-byte build marker + an ASCII build date/time at byte_14002798: marker
+ * {01,02,00,00} (composite 0x01020000), "Jun 26 2016" / "11:08:46". The
  * workspace name here is therefore descriptive, anchored to product code
- * UQ-AAA and that date.
+ * LQ-XXX and that date.
  */
 #ifndef BOOTLOADER_H
 #define BOOTLOADER_H
@@ -38,7 +38,7 @@
 /* ===================================================================== */
 #define RAM_APP_LOAD_BASE     0x10000000u   /* decrypted app lands here (64 KB)*/
 #define RAM_HANDOFF_BLOCK     0x10000200u   /* bootloader -> app handoff cells */
-/*   +0x00 = build-info pointer (&byte_14002958)                            */
+/*   +0x00 = build-info pointer (&byte_14002798)                            */
 /*   +0x04 = boot-config pointer (*dword_10011EAC == 0x14010000)            */
 /*   +0x08 = slot indicator: 0 = A, 1 = B, 2 = recovery                     */
 #define RAM_UPDATE_FLAG       0x1000020Cu   /* app->bootloader update request  */
@@ -70,7 +70,7 @@
  * also NO key-whitening constant: key words seed the PRNG directly. */
 /* Acceptance sentinel: an image is valid iff its decrypted word-sum is 0. */
 #define ACCEPT_SENTINEL       0x00000000u
-/* Build-marker gate read by prng_seed_from_key: composite of byte_14002958. */
+/* Build-marker gate read by prng_seed_from_key: composite of byte_14002798. */
 #define BUILD_MARKER          0x01020000u    /* {01,02,00,00}                  */
 #define BUILD_MARKER_FIXEDKEY 0x01010000u    /* marker > this -> fixed Key B   */
 /* Silicon registers Key B is derived from when the marker selects that path. */
@@ -105,23 +105,16 @@ void      scatterload_copy_words(const void *src, void *dst, uint32_t byte_len);
 void      memzero_words(void *dst, uint32_t byte_len);
 uint32_t  select_boot_slot(int update_flag);          /* returns slot base addr */
 /* image_try_keys / image_try_keys_copy2: each validates a slot under ONE key
- * (magic + len) and then tails into the matching checksum gate, returning
- * 1 (accept) / 0 (reject). Unlike the sibling FF build, the checksum test is
- * NOT fused in — it is a separate image_checksum_ok[_copy2] routine (below).
+ * (magic + len + checksum) and returns 1 (accept) / 0 (reject). The checksum
+ * test is fused inline here (there is no separate image_checksum_ok routine).
  * image_try_keys uses Key A; image_try_keys_copy2 uses Key B. */
 int       image_try_keys(const uint32_t *slot_base);        /* Key A */
 int       image_try_keys_copy2(const uint32_t *slot_base);  /* Key B */
-/* image_checksum_ok[_copy2]: return 1 iff the decrypted word-sum == 0. Kept as
- * separate tail-called routines in this build (each has its own frame). _copy
- * keys Key A; _copy2 keys Key B. */
-int       image_checksum_ok(const uint32_t *src, uint32_t byte_len);       /* A */
-int       image_checksum_ok_copy2(const uint32_t *src, uint32_t byte_len); /* B */
 
 /* --- crypto_stream.c --- */
-/* xorshift128_next: the shared PRNG step. In this build it is INLINED into
- * every stream routine (it is a file-local static in crypto_stream.c), so it
- * is NOT declared here. (The sibling FF build factored it into a standalone
- * exported routine — that is the one genuine code-size difference.) */
+/* xorshift128_next: the shared PRNG step. In this build it is a real, standalone
+ * routine that every stream routine below CALLS (it is not inlined). */
+uint32_t  xorshift128_next(uint32_t *state);
 /* prng_seed_from_key: seeds the Key-B / silicon-derived state (no whitening).
  * The Key-A seed is inlined at its call sites; there is no separate helper. */
 uint32_t *prng_seed_from_key(uint32_t *state);
@@ -133,16 +126,14 @@ void      stream_checksum16(const uint32_t *src, uint32_t byte_len,
                             uint32_t *sum_raw, uint32_t *sum_dec);
 void      stream_checksum16_copy2(const uint32_t *src, uint32_t byte_len,
                                   uint32_t *sum_raw, uint32_t *sum_dec);
-/* stream_reencrypt_keyA_to_keyB (0x1400093C). Runs two keystreams in lockstep
+/* stream_reencrypt_keyA_to_keyB (0x1400087C). Runs two keystreams in lockstep
  * (ksA from the mask block, ksB from prng_seed_from_key) and XORs BOTH into
  * each body word, leaving words 128..143 verbatim. Converts a Key-A "transport"
  * slot to its Key-B "at-rest" form. */
 int       stream_reencrypt_keyA_to_keyB(void *dst, const uint32_t *src,
                                         uint32_t byte_len);
-/* The single-key (Key B) skip-header decryptor, used to decrypt the 0x2C0-byte
- * segment table. One logical routine — the disassembler labels two entry points
- * (_entry @0x140009F8, _body @0x140009FE) that share one frame; _body seeds
- * Key B internally. */
+/* The single-key (Key B) skip-header decryptor. One routine in this build
+ * (no entry/body split). Used to decrypt the 0x2C0-byte segment table. */
 int       stream_decrypt_skip_header(void *dst, const uint32_t *src,
                                      uint32_t byte_len);
 /* Positional segment decrypt (Key B): reseed internally, fast-forward by
@@ -180,6 +171,6 @@ extern const uint8_t  g_key_mask[16];   /* unk_10011EB0: Key A AND silicon mask 
 extern const uint8_t  g_keyA[16];       /* alias of g_key_mask (validation Key A)*/
 extern const uint8_t  g_keyB[16];       /* fixed Key B (storage)                */
 extern const uint32_t g_boot_config_ptr;/* dword_10011EAC == 0x14010000         */
-extern const uint8_t  g_build_info[];   /* byte_14002958: marker + date/time    */
+extern const uint8_t  g_build_info[];   /* byte_14002798: marker + date/time    */
 
 #endif /* BOOTLOADER_H */

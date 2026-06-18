@@ -1,4 +1,4 @@
-/* lpc43xx_spifi_boot.ld — CompactPro_43X0_Bootloader (reconstructed)
+/* lpc43xx_spifi_boot.ld — SeekProFF_43X0_Bootloader (reconstructed)
  *
  * First-stage SPIFI bootloader for LPC43xx. The image is executed in place
  * (XIP) from the memory-mapped external SPI-NOR at 0x14000000. Only the
@@ -6,7 +6,7 @@
  * logic itself runs from flash.
  *
  * Fixed addresses below are not free parameters — they must reproduce the
- * disassembly of Compact_Pro_Android_UQ-AAA (build "Jun 26 2016" / "11:08:15").
+ * disassembly of Seek_pro_FF_LQ-XXX (build "Jun 26 2016" / "11:08:46").
  */
 ENTRY(Reset_Handler)
 MEMORY
@@ -66,9 +66,9 @@ SECTIONS
   } > BOOT_FLASH
 
   /* ---- bespoke SPIFI driver blob: loaded from flash, runs from RAM ----
-   * LMA 0x14000BE8 -> VMA 0x10010000, length 0x1D70. Imported as-is; the
+   * LMA 0x14000A28 -> VMA 0x10010000, length 0x1D70. Imported as-is; the
    * loader only enters it through the three thunks. */
-  .text_ram __driver_ram_start : AT (0x14000BE8)
+  .text_ram __driver_ram_start : AT (0x14000A28)
   {
     __text_ram_start__ = .;
     KEEP(*(.spifi_driver_blob))
@@ -76,19 +76,19 @@ SECTIONS
     __text_ram_end__ = .;
   } > BOOT_RAM
 
-  /* ---- build-info marker @0x14002958: 4-byte marker + ASCII date/time ---- */
-  .build_info 0x14002958 :
+  /* ---- build-info marker @0x14002798: 4-byte marker + ASCII date/time ---- */
+  .build_info 0x14002798 :
   {
     KEEP(*(.build_info))
   } > BOOT_FLASH
 
-  /* ---- initialised data: LMA 0x1400297C -> VMA 0x10011D70, length 0x160 ----
+  /* ---- initialised data: LMA 0x140027BC -> VMA 0x10011D70, length 0x160 ----
    * Leading 0x13C bytes are the imported driver's mutable tables; the loader's
    * own cells follow at the tail:
-   *   .boot_config_ptr  VMA 0x10011EAC (LMA 0x14002AB8) = 0x14010000
-   *   g_key_mask (KeyA) VMA 0x10011EB0 (LMA 0x14002ABC)
-   *   g_keyB     (KeyB) VMA 0x10011EC0 (LMA 0x14002ACC)                      */
-  .data 0x10011D70 : AT (0x1400297C)
+   *   .boot_config_ptr  VMA 0x10011EAC (LMA 0x140028F8) = 0x14010000
+   *   g_key_mask (KeyA) VMA 0x10011EB0 (LMA 0x140028FC)
+   *   g_keyB     (KeyB) VMA 0x10011EC0 (LMA 0x1400290C)                      */
+  .data 0x10011D70 : AT (0x140027BC)
   {
     __data_start__ = .;
     *(.spifi_driver_data)         /* imported driver .data (0x13C bytes)      */
